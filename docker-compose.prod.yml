@@ -1,0 +1,99 @@
+services:
+  traefik:
+    image: traefik:v3.1
+    container_name: traefik-prod
+    restart: unless-stopped
+    command:
+      - "--api.insecure=true"
+      - "--entrypoints.web.address=:80"
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - ./traefik-dynamic.yml:/etc/traefik/dynamic/traefik-dynamic.yml:ro
+    networks:
+      - app-network
+
+  db:
+    image: postgres:15-alpine
+    container_name: db-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
+      POSTGRES_DB: ${POSTGRES_DB:-debyez_db}
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d debyez_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:RELEASE.2024-01-18T22-51-28Z
+    container_name: minio-prod
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-miniopassword}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data_prod:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: ${DOCKERHUB_USERNAME}/debyez-backend:${IMAGE_TAG}
+    container_name: backend-prod
+    restart: unless-stopped
+    environment:
+      - DB_USER=postgres
+      - DB_PASSWORD=postgrespassword
+      - DB_HOST=db-prod
+      - DB_PORT=5432
+      - DB_NAME=debyez_db
+      - DATABASE_URL=postgresql://postgres:postgrespassword@db-prod:5432/debyez_db
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=miniopassword
+      - AWS_REGION=us-east-1
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_PUBLIC_ENDPOINT_URL=http://localhost:9000
+      - S3_BUCKET_NAME=debyez-bucket
+      - CORS_ORIGINS=http://app.debyez.localhost,http://localhost:3000
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  frontend:
+    image: ${DOCKERHUB_USERNAME}/debyez-frontend:${IMAGE_TAG}
+    container_name: frontend-prod
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+volumes:
+  postgres_data_prod:
+  minio_data_prod:
+
+networks:
+  app-network:
+    driver: bridge
