@@ -88,3 +88,27 @@ The application is intended to provide enough functionality to verify:
 │
 ├── .gitignore
 └── README.md
+
+## Level 4: CI/CD & Production Deployment
+
+### Automated CI Pipeline
+On every push to the `main` branch, GitHub Actions:
+1. Authenticates against Docker Hub using repository secrets.
+2. Builds optimized Docker images for both `backend` and `frontend`.
+3. Tags each image with the short Git commit SHA and pushes them to Docker Hub.
+
+### Production Deployment
+To spin up the production stack using pre-built images:
+```bash
+export DOCKERHUB_USERNAME="beyons7"
+export IMAGE_TAG="21028ac"
+docker compose -f docker-compose.prod.yml up -d
+
+### Rollback Strategy
+If a deployment fails or contains critical regressions, roll back immediately without rebuilding:
+```bash
+# 1. Point to the previous known stable commit tag
+export IMAGE_TAG="<previous-stable-sha>"
+
+# 2. Re-apply the production compose stack
+docker compose -f docker-compose.prod.yml up -d
